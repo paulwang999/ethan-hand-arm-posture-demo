@@ -53,7 +53,6 @@ function recognizeHandGesture(lm){
   const wrist=lm[0];
   const avgFingerDist=average(tips.map(i=>Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y)));
 
-  // 判定手势
   if(avgFingerDist<0.04) return 'OK';
   if(!extended.some(x=>x)&&!thumbExt) return 'FIST';
   if(extended[0]&&!extended[1]&&!extended[2]&&!extended[3]) return 'POINT';
@@ -63,23 +62,46 @@ function recognizeHandGesture(lm){
   return 'UNKNOWN';
 }
 
-// 姿势识别
+// 改进后的姿势识别
 function classifyPose(lms){
+  if(!lms || lms.length<33) return 'UNKNOWN';
+
   const lshoulder=lms[11], rshoulder=lms[12], lhip=lms[23], rhip=lms[24];
   const lknee=lms[25], rknee=lms[26], lwrist=lms[15], rwrist=lms[16], head=lms[0];
-  if(!lshoulder||!rshoulder||!lhip||!rhip) return 'UNKNOWN';
-  const shoulderY=(lshoulder.y+rshoulder.y)/2, hipY=(lhip.y+rhip.y)/2, kneeY=(lknee.y+rknee.y)/2;
-  const leaningLeft=lshoulder.x>lhip.x+0.08, leaningRight=rshoulder.x<rhip.x-0.08;
-  if(Math.abs(shoulderY-hipY)<0.15){ if(leaningLeft) return 'LEAN_LEFT'; if(leaningRight) return 'LEAN_RIGHT'; return 'STANDING';}
-  if(hipY>shoulderY+0.15 && kneeY<hipY-0.15) return 'BENDING';
-  if(hipY>shoulderY+0.2 && kneeY>hipY-0.1) return 'SQUATTING';
-  const leftHandOnHead=lwrist&&head&&lwrist.y<head.y+0.05;
-  const rightHandOnHead=rwrist&&head&&rwrist.y<head.y+0.05;
-  if(leftHandOnHead||rightHandOnHead) return 'HAND_ON_HEAD';
-  const leftArmUp=lwrist&&lwrist.y<lshoulder.y-0.1, rightArmUp=rwrist&&rwrist.y<rshoulder.y-0.1;
-  if(leftArmUp||rightArmUp) return 'ARMS_UP';
-  const leftArmDown=lwrist&&lwrist.y>lshoulder.y+0.1, rightArmDown=rwrist&&rwrist.y>rshoulder.y+0.1;
-  if(leftArmDown||rightArmDown) return 'ARMS_DOWN';
+
+  if(!lshoulder || !rshoulder || !lhip || !rhip) return 'UNKNOWN';
+
+  // 身体比例
+  const shoulderY = (lshoulder.y + rshoulder.y)/2;
+  const hipY = (lhip.y + rhip.y)/2;
+  const kneeY = (lknee.y + rknee.y)/2;
+
+  const bodyHeight = hipY - shoulderY;
+  const leaningLeft = lshoulder.x > lhip.x + 0.05;
+  const leaningRight = rshoulder.x < rhip.x - 0.05;
+
+  // 手臂位置
+  const leftArmUp = lwrist && lwrist.y < lshoulder.y - 0.1;
+  const rightArmUp = rwrist && rwrist.y < rshoulder.y - 0.1;
+  const leftArmDown = lwrist && lwrist.y > lshoulder.y + 0.1;
+  const rightArmDown = rwrist && rwrist.y > rshoulder.y + 0.1;
+
+  // 手放头上
+  const leftHandOnHead = lwrist && head && lwrist.y < head.y + 0.05;
+  const rightHandOnHead = rwrist && head && rwrist.y < head.y + 0.05;
+
+  // 姿势判断
+  if(leftHandOnHead || rightHandOnHead) return 'HAND_ON_HEAD';
+  if(leftArmUp || rightArmUp) return 'ARMS_UP';
+  if(leftArmDown || rightArmDown) return 'ARMS_DOWN';
+  if(Math.abs(bodyHeight) > 0 && bodyHeight < 0.15){
+    if(leaningLeft) return 'LEAN_LEFT';
+    if(leaningRight) return 'LEAN_RIGHT';
+    return 'STANDING';
+  }
+  if(hipY > shoulderY + 0.15 && kneeY < hipY - 0.05) return 'BENDING';
+  if(hipY > shoulderY + 0.2 && kneeY > hipY - 0.05) return 'SQUATTING';
+
   return 'UNKNOWN';
 }
 
