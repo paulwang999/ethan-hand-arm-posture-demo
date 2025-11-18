@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MediaPipe Hands + Pose Recognition Demo</title>
+<title>Hand + Pose Recognition Demo</title>
 <style>
   body { text-align: center; font-family: sans-serif; margin: 10px; background:#111; color:#eee; }
   video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align: top; }
@@ -12,8 +12,7 @@
 </head>
 <body>
 
-<h2>MediaPipe Hands + Pose Recognition Demo</h2>
-
+<h2>MediaPipe Hands + Pose Recognition</h2>
 <div id="status">初始化...</div>
 <div id="handLabel">Hand: —</div>
 <div id="poseLabel">Pose: —</div>
@@ -34,7 +33,6 @@ const poseLabel = document.getElementById("poseLabel");
 const spatialLabel = document.getElementById("spatialLabel");
 
 let handLandmarker, poseLandmarker;
-let running = false;
 
 async function initModels() {
   statusEl.textContent = "加载模型...";
@@ -61,14 +59,13 @@ function startCamera(){
       video.srcObject = stream;
       video.onloadedmetadata=()=>{ 
         video.play(); 
-        running = true; 
         requestAnimationFrame(loop); 
       }
     })
     .catch(err=>{ statusEl.textContent = "无法访问摄像头："+err; console.error(err); });
 }
 
-// 工具函数
+// 简单工具函数
 function average(arr){ return arr.reduce((a,b)=>a+b,0)/arr.length; }
 function spatialPosition(cx,cy,w,h){
   const marginX=w*0.2, marginY=h*0.2;
@@ -79,7 +76,7 @@ function spatialPosition(cx,cy,w,h){
   return 'CENTER';
 }
 
-// 手势识别函数
+// 手势识别
 function recognizeHandGesture(lm){
   const tips=[8,12,16,20], pip=[6,10,14,18];
   const extended=[];
@@ -99,7 +96,7 @@ function recognizeHandGesture(lm){
   return 'UNKNOWN';
 }
 
-// 姿势识别函数
+// 姿势识别
 function classifyPose(lms){
   const lshoulder=lms[11], rshoulder=lms[12], lhip=lms[23], rhip=lms[24];
   const lknee=lms[25], rknee=lms[26], lwrist=lms[15], rwrist=lms[16], head=lms[0];
@@ -120,7 +117,6 @@ function classifyPose(lms){
 }
 
 async function loop(timestamp){
-  if(!running) return;
   canvas.width  = video.videoWidth;
   canvas.height = video.videoHeight;
 
@@ -140,8 +136,7 @@ async function loop(timestamp){
 
     const cx = average(lm.map(p=>p.x))*canvas.width;
     const cy = average(lm.map(p=>p.y))*canvas.height;
-    const s = spatialPosition(cx,cy,canvas.width,canvas.height);
-    spatialLabel.textContent = 'Spatial: '+s;
+    spatialLabel.textContent = 'Spatial: '+spatialPosition(cx,cy,canvas.width,canvas.height);
   } else {
     handLabel.textContent = 'Hand: —';
     spatialLabel.textContent = 'Spatial: —';
@@ -150,8 +145,7 @@ async function loop(timestamp){
   // Pose
   const poseResults = await poseLandmarker.detectForVideo(video, timestamp);
   if(poseResults?.landmarks?.length>0){
-    const pose = classifyPose(poseResults.landmarks);
-    poseLabel.textContent = 'Pose: '+pose;
+    poseLabel.textContent = 'Pose: '+classifyPose(poseResults.landmarks);
   } else {
     poseLabel.textContent = 'Pose: —';
   }
@@ -160,7 +154,7 @@ async function loop(timestamp){
 }
 
 window.addEventListener("load", initModels);
-
 </script>
+
 </body>
 </html>
