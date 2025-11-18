@@ -2,23 +2,20 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MediaPipe Hands + micro:bit（手势 + posture）</title>
+<title>MediaPipe Hands + Posture + micro:bit</title>
 <style>
-  body { text-align: center; font-family: sans-serif; margin: 10px; }
-  video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align: top; }
-  #status { color: blue; font-size: 18px; }
-  #action { color: red; font-size: 28px; font-weight: bold; }
-  .slider-container { margin: 5px 0; }
+body { text-align: center; font-family: sans-serif; margin: 10px; }
+video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align: top; }
+#status { color: blue; font-size: 18px; }
+#action { color: red; font-size: 28px; font-weight: bold; }
+.slider-container { margin: 5px 0; }
 </style>
 </head>
-
 <body>
 
-<h2>MediaPipe Hands → micro:bit（食指控制 左/右/上/下，握拳＝归位；姿势闭环发送 1=站立 2=蹲下）</h2>
-
+<h2>MediaPipe Hands + Posture → micro:bit</h2>
 <div id="status">初始化...</div>
 <div id="action">等待动作...</div>
-
 <button id="connectBtn">连接 micro:bit</button>
 <br>
 
@@ -40,13 +37,13 @@
 
 <script type="module">
 import { HandLandmarker, PoseLandmarker, FilesetResolver, DrawingUtils } 
-       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
+    from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
 
-const statusEl   = document.getElementById("status");
-const actionEl   = document.getElementById("action");
-const video      = document.getElementById("video");
-const canvas     = document.getElementById("canvas");
-const ctx        = canvas.getContext("2d");
+const statusEl = document.getElementById("status");
+const actionEl = document.getElementById("action");
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 const connectBtn = document.getElementById("connectBtn");
 
 let port, writer;
@@ -54,7 +51,7 @@ let port, writer;
 // 参数
 let dirThreshold = parseFloat(document.getElementById("moveSlider").value);
 let framesNeeded = parseInt(document.getElementById("frameSlider").value);
-let cooldown     = parseInt(document.getElementById("coolSlider").value);
+let cooldown = parseInt(document.getElementById("coolSlider").value);
 
 document.getElementById("moveSlider").addEventListener("input", e=>{
     dirThreshold = parseFloat(e.target.value);
@@ -91,32 +88,26 @@ connectBtn.addEventListener("click", async () => {
     }
 });
 
-// Hand去抖
-let currentAction = null;
-let actionCounter = 0;
-let lastSent = 0;
-let lastSentAction = null;
+// 手势闭环
+let currentAction = null, actionCounter = 0, lastSent = 0, lastSentAction = null;
 
-// Posture去抖
-let currentPosture = null;
-let postureCounter = 0;
-let lastSentPosture = 0;
+// 姿势闭环
+let currentPosture = null, postureCounter = 0, lastSentPosture = 0;
 
 async function sendAction(a) {
     if (!writer) return;
     let msg = "0";
-    if (a==="LEFT")   msg = "L";
-    if (a==="RIGHT")  msg = "R";
-    if (a==="UP")     msg = "U";
-    if (a==="DOWN")   msg = "D";
-    if (a==="RESET")  msg = "F";
+    if (a==="LEFT") msg="L";
+    else if (a==="RIGHT") msg="R";
+    else if (a==="UP") msg="U";
+    else if (a==="DOWN") msg="D";
+    else if (a==="RESET") msg="F";
     await writer.write(new TextEncoder().encode(msg + "\n"));
 }
 
-// Posture发送
-async function sendPosture(msg) {
+async function sendPosture(msg){
     if (!writer) return;
-    await writer.write(new TextEncoder().encode(msg + "\n"));
+    await writer.write(new TextEncoder().encode(msg+"\n"));
 }
 
 // 模型
@@ -129,129 +120,122 @@ async function init() {
     );
 
     // 手势模型
-    handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: { 
-            modelAssetPath: "https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/hand_landmarker.task"
-        },
-        runningMode: "VIDEO",
-        numHands: 1
+    handLandmarker = await HandLandmarker.createFromOptions(vision,{
+        baseOptions:{modelAssetPath:"https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/hand_landmarker.task"},
+        runningMode:"VIDEO",
+        numHands:1
     });
 
     // 姿势模型
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: { 
-            modelAssetPath: "https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/pose_landmarker_lite.task"
-        },
-        runningMode: "VIDEO",
-        numPoses: 1
+    poseLandmarker = await PoseLandmarker.createFromOptions(vision,{
+        baseOptions:{modelAssetPath:"https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/pose_landmarker_lite.task"},
+        runningMode:"VIDEO",
+        numPoses:1
     });
 
-    console.log("poseLandmarker:", poseLandmarker);
+    console.log("poseLandmarker object:", poseLandmarker);
 
     statusEl.textContent = "模型加载完成，启动摄像头...";
     startCamera();
 }
 
 function startCamera() {
-    navigator.mediaDevices.getUserMedia({ video:true })
-        .then(stream=>{
-            video.srcObject = stream;
-            video.onloadedmetadata = ()=>{
-                video.play();
-                canvas.width  = video.videoWidth;
-                canvas.height = video.videoHeight;
-                statusEl.textContent = "摄像头已启动";
-                requestAnimationFrame(loop);
-            };
-        })
-        .catch(err=>{
-            statusEl.textContent = "无法访问摄像头：" + err;
-            console.error(err);
-        });
+    navigator.mediaDevices.getUserMedia({video:true})
+    .then(stream=>{
+        video.srcObject=stream;
+        video.onloadedmetadata=()=>{
+            video.play();
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            statusEl.textContent = "摄像头已启动";
+            requestAnimationFrame(loop);
+        };
+    })
+    .catch(err=>{
+        statusEl.textContent = "无法访问摄像头：" + err;
+        console.error(err);
+    });
 }
 
 // 简单站立/蹲下判定
-function getPosture(lm) {
+function getPosture(lm){
+    // 使用左右髋膝踝关键点
     const hipY = (lm[23].y + lm[24].y)/2;
     const kneeY = (lm[25].y + lm[26].y)/2;
-    const ankleY = (lm[27].y + lm[28].y)/2;
     const kneeHipDist = kneeY - hipY;
-    if (kneeHipDist > 0.25) return "SQUAT";
-    else return "STAND";
+    if (kneeHipDist>0.25) return "SQUAT";
+    return "STAND";
 }
 
-async function loop(timestamp) {
-    if (!handLandmarker) return;
+async function loop(timestamp){
+    if(!handLandmarker) return;
 
-    canvas.width  = video.videoWidth;
+    canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
+    // 手势
     const results = await handLandmarker.detectForVideo(video, timestamp);
     ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
-    if (results.landmarks && results.landmarks.length > 0) {
+    if(results.landmarks && results.landmarks.length>0){
         const lm = results.landmarks[0];
         const draw = new DrawingUtils(ctx);
         draw.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS);
         draw.drawLandmarks(lm);
 
-        const wrist = lm[0];
-        const tip   = lm[8];
-        const vx = tip.x - wrist.x;
-        const vy = tip.y - wrist.y;
-        const len = Math.hypot(vx, vy);
-        function dist(a, b) { return Math.hypot(a.x-b.x, a.y-b.y, a.z-b.z); }
-        const dIndex  = dist(lm[8], wrist);
-        const dMiddle = dist(lm[12], wrist);
-        const dRing   = dist(lm[16], wrist);
-        const dPinky  = dist(lm[20], wrist);
-        const fistThreshold = 0.12;
-        const isFist = dIndex<fistThreshold && dMiddle<fistThreshold && dRing<fistThreshold && dPinky<fistThreshold;
+        const wrist=lm[0], tip=lm[8];
+        const vx=tip.x-wrist.x, vy=tip.y-wrist.y;
+        const len=Math.hypot(vx,vy);
+        const dIndex=Math.hypot(lm[8].x-wrist.x,lm[8].y-wrist.y,lm[8].z-wrist.z);
+        const dMiddle=Math.hypot(lm[12].x-wrist.x,lm[12].y-wrist.y,lm[12].z-wrist.z);
+        const dRing=Math.hypot(lm[16].x-wrist.x,lm[16].y-wrist.y,lm[16].z-wrist.z);
+        const dPinky=Math.hypot(lm[20].x-wrist.x,lm[20].y-wrist.y,lm[20].z-wrist.z);
+        const fistThreshold=0.12;
+        const isFist=dIndex<fistThreshold && dMiddle<fistThreshold && dRing<fistThreshold && dPinky<fistThreshold;
 
-        let detected = null;
-        if (isFist) detected = "RESET";
-        else if (len>dirThreshold) {
-            if (Math.abs(vx)>Math.abs(vy)) detected = vx>0?"LEFT":"RIGHT";
-            else detected = vy>0?"DOWN":"UP";
+        let detected=null;
+        if(isFist) detected="RESET";
+        else if(len>dirThreshold){
+            if(Math.abs(vx)>Math.abs(vy)) detected=vx>0?"LEFT":"RIGHT";
+            else detected=vy>0?"DOWN":"UP";
         }
 
-        // 手势闭环
-        if (detected===currentAction) actionCounter++;
-        else if (detected) { currentAction=detected; actionCounter=1; }
+        if(detected===currentAction) actionCounter++;
+        else if(detected){ currentAction=detected; actionCounter=1; }
         else { currentAction=null; actionCounter=0; }
 
-        const now = performance.now();
-        if (currentAction && currentAction!==lastSentAction && actionCounter>=framesNeeded && now-lastSent>cooldown) {
-            actionEl.textContent = currentAction;
+        const now=performance.now();
+        if(currentAction && currentAction!==lastSentAction && actionCounter>=framesNeeded && now-lastSent>cooldown){
+            actionEl.textContent=currentAction;
             await sendAction(currentAction);
             lastSent=now;
             lastSentAction=currentAction;
-        } else if (!currentAction && now-lastSent>300) {
+        }else if(!currentAction && now-lastSent>300){
             actionEl.textContent="WAIT";
             lastSentAction=null;
         }
-    } else {
-        actionEl.textContent = "没有检测到手";
-        currentAction = null;
-        actionCounter = 0;
+    }else{
+        actionEl.textContent="没有检测到手";
+        currentAction=null;
+        actionCounter=0;
     }
 
-    // posture闭环
-    if (poseLandmarker) {
-        const poseResults = await poseLandmarker.detectForVideo(video, timestamp);
-        if (poseResults && poseResults.landmarks.length>0) {
-            const posture = getPosture(poseResults.landmarks[0]);
-            if (posture===currentPosture) postureCounter++;
+    // 姿势
+    if(poseLandmarker){
+        const poseResults=await poseLandmarker.detectForVideo(video,timestamp);
+        if(poseResults && poseResults.landmarks.length>0){
+            const posture=getPosture(poseResults.landmarks[0]);
+            if(posture===currentPosture) postureCounter++;
             else { currentPosture=posture; postureCounter=1; }
 
-            if (postureCounter>=framesNeeded && performance.now()-lastSentPosture>cooldown) {
-                const msg = posture==="STAND"?"1":"2";
+            if(postureCounter>=framesNeeded && performance.now()-lastSentPosture>cooldown){
+                const msg=posture==="STAND"?"1":"2";
                 await sendPosture(msg);
-                lastSentPosture = performance.now();
-                console.log("Sent posture:", posture, msg);
+                lastSentPosture=performance.now();
+                console.log("Sent posture:",posture,msg);
             }
-        } else {
+        }else{
             currentPosture=null;
             postureCounter=0;
         }
@@ -260,7 +244,7 @@ async function loop(timestamp) {
     requestAnimationFrame(loop);
 }
 
-window.addEventListener("load", init);
+window.addEventListener("load",init);
 </script>
 
 </body>
