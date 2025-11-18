@@ -39,7 +39,8 @@
 </div>
 
 <script type="module">
-import { HandLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
+import { HandLandmarker, PoseLandmarker, FilesetResolver, DrawingUtils } 
+       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
 
 const statusEl   = document.getElementById("status");
 const actionEl   = document.getElementById("action");
@@ -48,8 +49,7 @@ const canvas     = document.getElementById("canvas");
 const ctx        = canvas.getContext("2d");
 const connectBtn = document.getElementById("connectBtn");
 
-let port;
-let writer;
+let port, writer;
 
 let dirThreshold = parseFloat(document.getElementById("moveSlider").value);
 let framesNeeded = parseInt(document.getElementById("frameSlider").value);
@@ -105,21 +105,7 @@ async function sendAction(a) {
     await writer.write(new TextEncoder().encode(msg + "\n"));
 }
 
-// posture 检测
-function detectPosture(lm) {
-    function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y, a.z-b.z); }
-    const wrist = lm[0];
-    const tips  = [8,12,16,20].map(i=>lm[i]);
-    const bent  = tips.map(t=>dist(t,wrist) < 0.12);
-    if (!bent[0] && !bent[1] && !bent[2] && !bent[3]) return "PALM";
-    if (bent[0] && bent[1] && bent[2] && bent[3]) return "FIST";
-    if (!bent[0] && bent[1] && bent[2] && bent[3]) return "POINT";
-    if (!bent[0] && !bent[1] && bent[2] && bent[3]) return "V";
-    return "UNKNOWN";
-}
-
-let handLandmarker;
-let poseLandmarker;
+let handLandmarker, poseLandmarker;
 
 async function init() {
     statusEl.textContent = "加载模型...";
@@ -127,22 +113,22 @@ async function init() {
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
     );
 
-    // 手势模型（GitHub raw）
+    // 手势模型
     handLandmarker = await HandLandmarker.createFromOptions(vision, {
         baseOptions: { 
-            modelAssetPath: "https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/hand_landmarker.task" 
+            modelAssetPath: "https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/hand_landmarker.task"
         },
         runningMode: "VIDEO",
-        numHands: 1,
+        numHands: 1
     });
 
-    // 姿势模型（GitHub raw）
-    poseLandmarker = await HandLandmarker.createFromOptions(vision, {
+    // 姿势模型
+    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
         baseOptions: { 
-            modelAssetPath: "https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/pose_landmarker_lite.task" 
+            modelAssetPath: "https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/pose_landmarker_lite.task"
         },
         runningMode: "VIDEO",
-        numHands: 1,
+        numPoses: 1
     });
 
     statusEl.textContent = "模型加载完成，启动摄像头...";
@@ -186,7 +172,6 @@ async function loop(timestamp) {
 
         const wrist = lm[0];
         const tip   = lm[8];
-
         const vx = tip.x - wrist.x;
         const vy = tip.y - wrist.y;
         const len = Math.hypot(vx, vy);
@@ -206,7 +191,6 @@ async function loop(timestamp) {
             dPinky  < fistThreshold;
 
         let detected = null;
-
         if (isFist) {
             detected = "RESET";
         } else if (len > dirThreshold) {
@@ -217,14 +201,15 @@ async function loop(timestamp) {
             }
         }
 
-        // posture 识别
+        // posture 检测
         if (poseLandmarker) {
             const poseResults = await poseLandmarker.detectForVideo(video, timestamp);
-            if (poseResults && poseResults.landmarks && poseResults.landmarks.length > 0) {
-                console.log("检测到 posture:", poseResults.landmarks[0]);
+            if (poseResults && poseResults.landmarks.length > 0) {
+                console.log("Posture landmarks:", poseResults.landmarks[0]);
             }
         }
 
+        // 去抖 + 连续帧
         if (detected && detected === currentAction) {
             actionCounter++;
         } else if (detected) {
