@@ -34,38 +34,7 @@ const spatialLabel = document.getElementById("spatialLabel");
 
 let handLandmarker, poseLandmarker;
 
-async function initModels() {
-  statusEl.textContent = "加载模型...";
-  const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
-  
-  handLandmarker = await HandLandmarker.createFromOptions(vision,{
-    baseOptions: { modelAssetPath: "./hand_landmarker.task" },
-    runningMode: "VIDEO",
-    numHands: 2
-  });
-
-  poseLandmarker = await PoseLandmarker.createFromOptions(vision,{
-    baseOptions: { modelAssetPath: "./pose_landmarker_lite.task" },
-    runningMode: "VIDEO"
-  });
-
-  statusEl.textContent = "模型加载完成，启动摄像头...";
-  startCamera();
-}
-
-function startCamera(){
-  navigator.mediaDevices.getUserMedia({ video:true })
-    .then(stream=>{
-      video.srcObject = stream;
-      video.onloadedmetadata=()=>{ 
-        video.play(); 
-        requestAnimationFrame(loop); 
-      }
-    })
-    .catch(err=>{ statusEl.textContent = "无法访问摄像头："+err; console.error(err); });
-}
-
-// 简单工具函数
+// 工具函数
 function average(arr){ return arr.reduce((a,b)=>a+b,0)/arr.length; }
 function spatialPosition(cx,cy,w,h){
   const marginX=w*0.2, marginY=h*0.2;
@@ -76,23 +45,21 @@ function spatialPosition(cx,cy,w,h){
   return 'CENTER';
 }
 
-// 手势识别
+// 手势识别 7 种
 function recognizeHandGesture(lm){
   const tips=[8,12,16,20], pip=[6,10,14,18];
-  const extended=[];
-  for(let i=0;i<tips.length;i++){extended.push(lm[tips[i]].y<lm[pip[i]].y);}
-  const thumbTip=lm[4], thumbIp=lm[3];
-  const isThumbExt=Math.abs(thumbTip.x-thumbIp.x)>0.03;
-  const distIdxThumb=Math.hypot(lm[8].x-thumbTip.x, lm[8].y-thumbTip.y);
+  const extended=tips.map((i,j)=>lm[i].y<lm[pip[j]].y); // 四指是否伸直
+  const thumbExt=lm[4].x-lm[3].x>0.03; // 拇指是否伸出
   const wrist=lm[0];
-  const avgFingerDist=average([8,12,16,20].map(i=>Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y)));
-  
-  if(distIdxThumb<0.04) return 'OK';
+  const avgFingerDist=average(tips.map(i=>Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y)));
+
+  // 判定手势
+  if(avgFingerDist<0.04) return 'OK';
+  if(!extended.some(x=>x)&&!thumbExt) return 'FIST';
   if(extended[0]&&!extended[1]&&!extended[2]&&!extended[3]) return 'POINT';
-  if(extended.every(x=>x)&&isThumbExt&&avgFingerDist>0.12) return 'OPEN_PALM';
-  if(!extended.some(x=>x)&&!isThumbExt) return 'FIST';
-  if(isThumbExt && thumbTip.y<lm[2].y&&!extended.some(x=>x)) return 'THUMBS_UP';
-  if(isThumbExt && extended[3]&&!extended[0]&&!extended[1]&&!extended[2]) return 'CALL';
+  if(extended.every(x=>x)&&thumbExt&&avgFingerDist>0.12) return 'OPEN_PALM';
+  if(extended[0]&&!extended[1]&&!extended[2]&&!extended[3]&&thumbExt) return 'THUMBS_UP';
+  if(extended[3]&&!extended[0]&&!extended[1]&&!extended[2]&&thumbExt) return 'CALL';
   return 'UNKNOWN';
 }
 
@@ -116,39 +83,67 @@ function classifyPose(lms){
   return 'UNKNOWN';
 }
 
+async function initModels() {
+  statusEl.textContent = "加载模型...";
+  const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
+
+  handLandmarker = await HandLandmarker.createFromOptions(vision,{
+    baseOptions:{modelAssetPath:"./hand_landmarker.task"},
+    runningMode:"VIDEO",
+    numHands:2
+  });
+
+  poseLandmarker = await PoseLandmarker.createFromOptions(vision,{
+    baseOptions:{modelAssetPath:"./pose_landmarker_lite.task"},
+    runningMode:"VIDEO"
+  });
+
+  statusEl.textContent = "模型加载完成，启动摄像头...";
+  startCamera();
+}
+
+function startCamera(){
+  navigator.mediaDevices.getUserMedia({ video:true })
+    .then(stream=>{
+      video.srcObject = stream;
+      video.onloadedmetadata=()=>{ video.play(); requestAnimationFrame(loop); }
+    })
+    .catch(err=>{ statusEl.textContent="无法访问摄像头："+err; console.error(err); });
+}
+
 async function loop(timestamp){
   canvas.width  = video.videoWidth;
   canvas.height = video.videoHeight;
-
-  // Hand
-  const handResults = await handLandmarker.detectForVideo(video, timestamp);
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
+  // --- Hand ---
+  const handResults = await handLandmarker.detectForVideo(video, timestamp);
   if(handResults?.landmarks?.length>0){
     const lm = handResults.landmarks[0];
     const draw = new DrawingUtils(ctx);
     draw.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS);
     draw.drawLandmarks(lm);
-
-    const gesture = recognizeHandGesture(lm);
-    handLabel.textContent = 'Hand: '+gesture;
-
+    handLabel.textContent = 'Hand: '+recognizeHandGesture(lm);
     const cx = average(lm.map(p=>p.x))*canvas.width;
     const cy = average(lm.map(p=>p.y))*canvas.height;
     spatialLabel.textContent = 'Spatial: '+spatialPosition(cx,cy,canvas.width,canvas.height);
-  } else {
-    handLabel.textContent = 'Hand: —';
-    spatialLabel.textContent = 'Spatial: —';
-  }
+  } else { handLabel.textContent='Hand: —'; spatialLabel.textContent='Spatial: —'; }
 
-  // Pose
+  // --- Pose ---
   const poseResults = await poseLandmarker.detectForVideo(video, timestamp);
   if(poseResults?.landmarks?.length>0){
     poseLabel.textContent = 'Pose: '+classifyPose(poseResults.landmarks);
-  } else {
-    poseLabel.textContent = 'Pose: —';
-  }
+    // 绘制骨架
+    const draw = new DrawingUtils(ctx);
+    const connections=[[11,13],[13,15],[12,14],[14,16],[11,12],[23,25],[25,27],[24,26],[26,28],[23,24],[11,23],[12,24]];
+    poseResults.landmarks.forEach(p=>draw.drawLandmark(p));
+    connections.forEach(c=>{
+      const [i,j]=c;
+      if(poseResults.landmarks[i] && poseResults.landmarks[j])
+        draw.drawConnector(poseResults.landmarks[i], poseResults.landmarks[j]);
+    });
+  } else { poseLabel.textContent='Pose: —'; }
 
   requestAnimationFrame(loop);
 }
