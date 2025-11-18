@@ -25,7 +25,6 @@
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas"></canvas>
 
-<!-- 灵敏度设置（可调） -->
 <div class="slider-container">
     <label>手指方向强度阈值 (dirThreshold): <span id="moveVal">0.05</span></label><br>
     <input type="range" id="moveSlider" min="0.02" max="0.20" step="0.01" value="0.05">
@@ -49,16 +48,13 @@ const canvas     = document.getElementById("canvas");
 const ctx        = canvas.getContext("2d");
 const connectBtn = document.getElementById("connectBtn");
 
-// USB serial
 let port;
 let writer;
 
-// 参数：从滑块读取初始值
 let dirThreshold = parseFloat(document.getElementById("moveSlider").value);
 let framesNeeded = parseInt(document.getElementById("frameSlider").value);
 let cooldown     = parseInt(document.getElementById("coolSlider").value);
 
-// slider 更新
 document.getElementById("moveSlider").addEventListener("input", e=>{
     dirThreshold = parseFloat(e.target.value);
     document.getElementById("moveVal").textContent = dirThreshold.toFixed(2);
@@ -72,12 +68,10 @@ document.getElementById("coolSlider").addEventListener("input", e=>{
     document.getElementById("coolVal").textContent = cooldown;
 });
 
-// 初始化显示
 document.getElementById("moveVal").textContent  = dirThreshold.toFixed(2);
 document.getElementById("frameVal").textContent = framesNeeded;
 document.getElementById("coolVal").textContent  = cooldown;
 
-// 连接 micro:bit（USB）
 connectBtn.addEventListener("click", async () => {
     try {
         if (!("serial" in navigator)) {
@@ -95,13 +89,11 @@ connectBtn.addEventListener("click", async () => {
     }
 });
 
-// 去抖状态
 let currentAction = null;
 let actionCounter = 0;
 let lastSent = 0;
 let lastSentAction = null;
 
-// 串口发送给 micro:bit
 async function sendAction(a) {
     if (!writer) return;
     let msg = "0";
@@ -113,7 +105,7 @@ async function sendAction(a) {
     await writer.write(new TextEncoder().encode(msg + "\n"));
 }
 
-// ---- posture 识别函数（不影响原手势逻辑） ----
+// posture 检测
 function detectPosture(lm) {
     function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y, a.z-b.z); }
     const wrist = lm[0];
@@ -126,9 +118,8 @@ function detectPosture(lm) {
     return "UNKNOWN";
 }
 
-// MediaPipe 初始化
 let handLandmarker;
-let poseLandmarker;  // 新增姿势模型
+let poseLandmarker;
 
 async function init() {
     statusEl.textContent = "加载模型...";
@@ -136,16 +127,18 @@ async function init() {
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
     );
 
-    // 原手势模型
     handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/hand_landmarker.task" },
+        baseOptions: { 
+            modelAssetPath: "https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/hand_landmarker.task" 
+        },
         runningMode: "VIDEO",
         numHands: 1,
     });
 
-    // ---- 新增 posture 模型 ----
     poseLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: "https://raw.githubusercontent.com/你的用户名/你的仓库/main/pose_landmarker_lite.task" },
+        baseOptions: { 
+            modelAssetPath: "https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/pose_landmarker_lite.task" 
+        },
         runningMode: "VIDEO",
         numHands: 1,
     });
@@ -222,7 +215,7 @@ async function loop(timestamp) {
             }
         }
 
-        // ---- posture 识别 ----
+        // posture 识别
         if (poseLandmarker) {
             const poseResults = await poseLandmarker.detectForVideo(video, timestamp);
             if (poseResults && poseResults.landmarks && poseResults.landmarks.length > 0) {
@@ -230,7 +223,6 @@ async function loop(timestamp) {
             }
         }
 
-        // 去抖 + 连续帧
         if (detected && detected === currentAction) {
             actionCounter++;
         } else if (detected) {
