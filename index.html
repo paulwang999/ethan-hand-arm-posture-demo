@@ -2,20 +2,22 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>TF.js Hands + Pose + micro:bit</title>
+<title>TF.js Hands + Multi-Posture + micro:bit</title>
 <style>
 body { text-align: center; font-family: sans-serif; margin: 10px; }
 video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align: top; }
 #status { color: blue; font-size: 18px; }
 #action { color: red; font-size: 28px; font-weight: bold; }
+#posture { color: green; font-size: 24px; font-weight: bold; margin-top: 5px; }
 .slider-container { margin: 5px 0; }
 </style>
 </head>
 <body>
 
-<h2>TensorFlow.js Hands + Pose → micro:bit</h2>
+<h2>TF.js Hands + Multi-Posture → micro:bit</h2>
 <div id="status">初始化...</div>
 <div id="action">等待动作...</div>
+<div id="posture">等待姿势...</div>
 <button id="connectBtn">连接 micro:bit</button>
 <br>
 
@@ -42,6 +44,7 @@ video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align:
 <script>
 const statusEl = document.getElementById("status");
 const actionEl = document.getElementById("action");
+const postureEl = document.getElementById("posture");
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -146,12 +149,11 @@ function detectHandGesture(keypoints){
     const vx = tip[0]-wrist[0], vy = tip[1]-wrist[1];
     const len = Math.hypot(vx,vy);
 
-    // 判断是否握拳
     let dIndex = Math.hypot(keypoints[8][0]-wrist[0], keypoints[8][1]-wrist[1]);
     let dMiddle = Math.hypot(keypoints[12][0]-wrist[0], keypoints[12][1]-wrist[1]);
     let dRing = Math.hypot(keypoints[16][0]-wrist[0], keypoints[16][1]-wrist[1]);
     let dPinky = Math.hypot(keypoints[20][0]-wrist[0], keypoints[20][1]-wrist[1]);
-    const fistThreshold=30; // 像素阈值，浏览器端可以调
+    const fistThreshold=30;
 
     if(dIndex<fistThreshold && dMiddle<fistThreshold && dRing<fistThreshold && dPinky<fistThreshold) return "RESET";
     if(len>dirThreshold*canvas.width){
@@ -163,15 +165,30 @@ function detectHandGesture(keypoints){
 
 // 判断姿势
 function detectPosture(keypoints){
+    // keypoints: [ [x,y], ... ]
     const leftHip = keypoints[11];
     const rightHip = keypoints[12];
     const leftKnee = keypoints[13];
     const rightKnee = keypoints[14];
+    const leftShoulder = keypoints[5];
+    const rightShoulder = keypoints[6];
+    const leftWrist = keypoints[9];
+    const rightWrist = keypoints[10];
+    const nose = keypoints[0];
 
     const hipY = (leftHip[1]+rightHip[1])/2;
     const kneeY = (leftKnee[1]+rightKnee[1])/2;
-    const kneeHipDist = kneeY-hipY;
-    if(kneeHipDist>50) return "SQUAT"; // 像素阈值可调
+    const shoulderY = (leftShoulder[1]+rightShoulder[1])/2;
+
+    // 蹲下
+    if(kneeY - hipY > 50) return "SQUAT";
+    // 举手
+    if(leftWrist[1]<shoulderY && rightWrist[1]<shoulderY) return "HANDS_UP";
+    // 抱头（手靠近头顶）
+    const headY = nose[1];
+    if(Math.abs(leftWrist[1]-headY)<30 && Math.abs(rightWrist[1]-headY)<30) return "HEAD_HOLD";
+
+    // 默认站立
     return "STAND";
 }
 
@@ -206,12 +223,21 @@ async function loop(){
     // 姿势检测
     const poses = await poseModel.estimatePoses(video);
     if(poses.length>0){
-        const posture = detectPosture(poses[0].keypoints.map(k=>[k.x,k.y]));
+        const keypoints = poses[0].keypoints.map(k=>[k.x,k.y]);
+        const posture = detectPosture(keypoints);
+        postureEl.textContent = posture;
+
         if(posture===currentPosture) postureCounter++;
         else { currentPosture=posture; postureCounter=1; }
 
         if(postureCounter>=framesNeeded && performance.now()-lastSentPosture>cooldown){
-            const msg=posture==="STAND"?"1":"2";
+            let msg;
+            switch(posture){
+                case "STAND": msg="1"; break;
+                case "SQUAT": msg="2"; break;
+                case "HANDS_UP": msg="3"; break;
+                case "HEAD_HOLD": msg="4"; break;
+            }
             await sendPosture(msg);
             lastSentPosture=performance.now();
             console.log("Sent posture:",posture,msg);
@@ -219,6 +245,7 @@ async function loop(){
     }else{
         currentPosture=null;
         postureCounter=0;
+        postureEl.textContent="No posture detected";
     }
 
     requestAnimationFrame(loop);
