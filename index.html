@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MediaPipe Hands + micro:bit（手势控制 + posture 调试）</title>
+<title>MediaPipe Hands + micro:bit（手势 + posture）</title>
 <style>
   body { text-align: center; font-family: sans-serif; margin: 10px; }
   video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align: top; }
@@ -14,7 +14,7 @@
 
 <body>
 
-<h2>MediaPipe Hands → micro:bit（食指控制 左/右/上/下，握拳＝归位）</h2>
+<h2>MediaPipe Hands → micro:bit（食指控制 左/右/上/下，握拳＝归位；姿势闭环发送 1=站立 2=蹲下）</h2>
 
 <div id="status">初始化...</div>
 <div id="action">等待动作...</div>
@@ -51,6 +51,7 @@ const connectBtn = document.getElementById("connectBtn");
 
 let port, writer;
 
+// 参数
 let dirThreshold = parseFloat(document.getElementById("moveSlider").value);
 let framesNeeded = parseInt(document.getElementById("frameSlider").value);
 let cooldown     = parseInt(document.getElementById("coolSlider").value);
@@ -72,6 +73,7 @@ document.getElementById("moveVal").textContent  = dirThreshold.toFixed(2);
 document.getElementById("frameVal").textContent = framesNeeded;
 document.getElementById("coolVal").textContent  = cooldown;
 
+// USB 连接
 connectBtn.addEventListener("click", async () => {
     try {
         if (!("serial" in navigator)) {
@@ -89,10 +91,16 @@ connectBtn.addEventListener("click", async () => {
     }
 });
 
+// Hand去抖
 let currentAction = null;
 let actionCounter = 0;
 let lastSent = 0;
 let lastSentAction = null;
+
+// Posture去抖
+let currentPosture = null;
+let postureCounter = 0;
+let lastSentPosture = 0;
 
 async function sendAction(a) {
     if (!writer) return;
@@ -105,6 +113,13 @@ async function sendAction(a) {
     await writer.write(new TextEncoder().encode(msg + "\n"));
 }
 
+// Posture发送
+async function sendPosture(msg) {
+    if (!writer) return;
+    await writer.write(new TextEncoder().encode(msg + "\n"));
+}
+
+// 模型
 let handLandmarker, poseLandmarker;
 
 async function init() {
@@ -131,7 +146,6 @@ async function init() {
         numPoses: 1
     });
 
-    // 调试：打印 poseLandmarker 对象
     console.log("poseLandmarker:", poseLandmarker);
 
     statusEl.textContent = "模型加载完成，启动摄像头...";
@@ -156,6 +170,16 @@ function startCamera() {
         });
 }
 
+// 简单站立/蹲下判定
+function getPosture(lm) {
+    const hipY = (lm[23].y + lm[24].y)/2;
+    const kneeY = (lm[25].y + lm[26].y)/2;
+    const ankleY = (lm[27].y + lm[28].y)/2;
+    const kneeHipDist = kneeY - hipY;
+    if (kneeHipDist > 0.25) return "SQUAT";
+    else return "STAND";
+}
+
 async function loop(timestamp) {
     if (!handLandmarker) return;
 
@@ -163,7 +187,6 @@ async function loop(timestamp) {
     canvas.height = video.videoHeight;
 
     const results = await handLandmarker.detectForVideo(video, timestamp);
-
     ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
@@ -178,73 +201,60 @@ async function loop(timestamp) {
         const vx = tip.x - wrist.x;
         const vy = tip.y - wrist.y;
         const len = Math.hypot(vx, vy);
-
         function dist(a, b) { return Math.hypot(a.x-b.x, a.y-b.y, a.z-b.z); }
-
         const dIndex  = dist(lm[8], wrist);
         const dMiddle = dist(lm[12], wrist);
         const dRing   = dist(lm[16], wrist);
         const dPinky  = dist(lm[20], wrist);
-
         const fistThreshold = 0.12;
-        const isFist =
-            dIndex  < fistThreshold &&
-            dMiddle < fistThreshold &&
-            dRing   < fistThreshold &&
-            dPinky  < fistThreshold;
+        const isFist = dIndex<fistThreshold && dMiddle<fistThreshold && dRing<fistThreshold && dPinky<fistThreshold;
 
         let detected = null;
-        if (isFist) {
-            detected = "RESET";
-        } else if (len > dirThreshold) {
-            if (Math.abs(vx) > Math.abs(vy)) {
-                detected = vx > 0 ? "LEFT" : "RIGHT";
-            } else {
-                detected = vy > 0 ? "DOWN" : "UP";
-            }
+        if (isFist) detected = "RESET";
+        else if (len>dirThreshold) {
+            if (Math.abs(vx)>Math.abs(vy)) detected = vx>0?"LEFT":"RIGHT";
+            else detected = vy>0?"DOWN":"UP";
         }
 
-        // posture 检测（调试用）
-        if (poseLandmarker) {
-            const poseResults = await poseLandmarker.detectForVideo(video, timestamp);
-            if (poseResults && poseResults.landmarks.length > 0) {
-                console.log("Pose landmarks:", poseResults.landmarks[0]);
-            } else {
-                console.log("No pose detected");
-            }
-        }
-
-        // 去抖 + 连续帧
-        if (detected && detected === currentAction) {
-            actionCounter++;
-        } else if (detected) {
-            currentAction = detected;
-            actionCounter = 1;
-        } else {
-            currentAction = null;
-            actionCounter = 0;
-        }
+        // 手势闭环
+        if (detected===currentAction) actionCounter++;
+        else if (detected) { currentAction=detected; actionCounter=1; }
+        else { currentAction=null; actionCounter=0; }
 
         const now = performance.now();
-        if (
-            currentAction &&
-            currentAction !== lastSentAction &&
-            actionCounter >= framesNeeded &&
-            now - lastSent > cooldown
-        ) {
+        if (currentAction && currentAction!==lastSentAction && actionCounter>=framesNeeded && now-lastSent>cooldown) {
             actionEl.textContent = currentAction;
             await sendAction(currentAction);
-            lastSent = now;
-            lastSentAction = currentAction;
-        } else if (!currentAction && now - lastSent > 300) {
-            actionEl.textContent = "WAIT";
-            lastSentAction = null;
+            lastSent=now;
+            lastSentAction=currentAction;
+        } else if (!currentAction && now-lastSent>300) {
+            actionEl.textContent="WAIT";
+            lastSentAction=null;
         }
-
     } else {
         actionEl.textContent = "没有检测到手";
         currentAction = null;
         actionCounter = 0;
+    }
+
+    // posture闭环
+    if (poseLandmarker) {
+        const poseResults = await poseLandmarker.detectForVideo(video, timestamp);
+        if (poseResults && poseResults.landmarks.length>0) {
+            const posture = getPosture(poseResults.landmarks[0]);
+            if (posture===currentPosture) postureCounter++;
+            else { currentPosture=posture; postureCounter=1; }
+
+            if (postureCounter>=framesNeeded && performance.now()-lastSentPosture>cooldown) {
+                const msg = posture==="STAND"?"1":"2";
+                await sendPosture(msg);
+                lastSentPosture = performance.now();
+                console.log("Sent posture:", posture, msg);
+            }
+        } else {
+            currentPosture=null;
+            postureCounter=0;
+        }
     }
 
     requestAnimationFrame(loop);
