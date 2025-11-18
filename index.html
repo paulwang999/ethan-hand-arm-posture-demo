@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Pose Recognition Demo</title>
+<title>PoseLandmarker Lite Demo</title>
 <style>
   body { text-align: center; font-family: sans-serif; margin: 10px; background:#111; color:#eee; }
   video, canvas { width: 60%; margin: 5px; border: 1px solid #333; vertical-align: top; }
@@ -11,7 +11,7 @@
 </head>
 <body>
 
-<h2>MediaPipe Pose Recognition</h2>
+<h2>MediaPipe Pose Recognition Demo</h2>
 <div id="status">初始化...</div>
 <div id="poseLabel">Pose: —</div>
 
@@ -29,7 +29,7 @@ const poseLabel = document.getElementById("poseLabel");
 
 let poseLandmarker;
 
-// 姿势识别逻辑
+// 判断姿势函数
 function classifyPose(lms){
   if(!lms || lms.length<33) return 'UNKNOWN';
 
@@ -42,38 +42,33 @@ function classifyPose(lms){
   const hipY = (lhip.y + rhip.y)/2;
   const kneeY = (lknee.y + rknee.y)/2;
 
-  const bodyHeight = hipY - shoulderY;
   const leaningLeft = lshoulder.x > lhip.x + 0.05;
   const leaningRight = rshoulder.x < rhip.x - 0.05;
-
   const leftArmUp = lwrist && lwrist.y < lshoulder.y - 0.1;
   const rightArmUp = rwrist && rwrist.y < rshoulder.y - 0.1;
   const leftArmDown = lwrist && lwrist.y > lshoulder.y + 0.1;
   const rightArmDown = rwrist && rwrist.y > rshoulder.y + 0.1;
-
-  const leftHandOnHead = lwrist && head && lwrist.y < head.y + 0.05;
-  const rightHandOnHead = rwrist && head && rwrist.y < head.y + 0.05;
+  const leftHandOnHead = lwrist && lwrist.y < head.y + 0.05;
+  const rightHandOnHead = rwrist && rwrist.y < head.y + 0.05;
 
   if(leftHandOnHead || rightHandOnHead) return 'HAND_ON_HEAD';
   if(leftArmUp || rightArmUp) return 'ARMS_UP';
   if(leftArmDown || rightArmDown) return 'ARMS_DOWN';
-  if(Math.abs(bodyHeight) > 0 && bodyHeight < 0.15){
-    if(leaningLeft) return 'LEAN_LEFT';
-    if(leaningRight) return 'LEAN_RIGHT';
-    return 'STANDING';
-  }
+  if(leaningLeft) return 'LEAN_LEFT';
+  if(leaningRight) return 'LEAN_RIGHT';
+  if(hipY > shoulderY + 0.15 && kneeY > hipY - 0.05) return 'SQUATTING';
   if(hipY > shoulderY + 0.15 && kneeY < hipY - 0.05) return 'BENDING';
-  if(hipY > shoulderY + 0.2 && kneeY > hipY - 0.05) return 'SQUATTING';
 
-  return 'UNKNOWN';
+  return 'STANDING';
 }
 
-// 初始化 Pose 模型
+// 初始化模型
 async function initPose() {
   statusEl.textContent = "加载模型...";
   const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
+
   poseLandmarker = await PoseLandmarker.createFromOptions(vision,{
-    baseOptions:{modelAssetPath:"./pose_landmarker_lite.task"},
+    baseOptions:{modelAssetPath:"./pose_landmarker_lite.task"}, // 可改成GitHub URL
     runningMode:"VIDEO"
   });
 
@@ -106,19 +101,22 @@ async function loop(timestamp){
   ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
   const poseResults = await poseLandmarker.detectForVideo(video, timestamp);
-  if(poseResults?.landmarks?.length>0){
-    poseLabel.textContent = 'Pose: '+classifyPose(poseResults.landmarks);
 
-    const draw = new DrawingUtils(ctx);
+  if(poseResults?.landmarks?.length>0){
     // 绘制关键点
-    poseResults.landmarks.forEach(p=>draw.drawLandmark(p));
-    // 绘制骨架（常用连接）
+    const draw = new DrawingUtils(ctx);
+    draw.drawLandmarks(poseResults.landmarks);
+
+    // 绘制骨架
     const connections=[[11,13],[13,15],[12,14],[14,16],[11,12],[23,25],[25,27],[24,26],[26,28],[23,24],[11,23],[12,24]];
     connections.forEach(c=>{
       const [i,j]=c;
       if(poseResults.landmarks[i] && poseResults.landmarks[j])
-        draw.drawConnector(poseResults.landmarks[i], poseResults.landmarks[j]);
+        draw.drawConnectors([poseResults.landmarks[i], poseResults.landmarks[j]], [[0,1]]);
     });
+
+    // 显示姿势
+    poseLabel.textContent = 'Pose: '+classifyPose(poseResults.landmarks);
   } else {
     poseLabel.textContent='Pose: —';
   }
