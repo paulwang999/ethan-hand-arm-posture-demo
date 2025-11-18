@@ -2,6 +2,92 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<title>TF.js Hand + Pose Test</title>
+<style>
+body { text-align: center; font-family: sans-serif; margin: 10px; }
+video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align: top; }
+#status { color: blue; font-size: 18px; }
+</style>
+</head>
+<body>
+
+<h2>TF.js Hand + Pose Test</h2>
+<div id="status">初始化...</div>
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+<script>
+const statusEl = document.getElementById("status");
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let handModel, poseModel;
+
+async function init() {
+  statusEl.textContent = "加载手势模型...";
+  handModel = await handpose.load();
+  statusEl.textContent = "加载姿势模型...";
+  poseModel = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+  statusEl.textContent = "模型加载完成，启动摄像头...";
+
+  const stream = await navigator.mediaDevices.getUserMedia({ video:true });
+  video.srcObject = stream;
+  await new Promise(resolve => video.onloadedmetadata = resolve);
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  statusEl.textContent = "摄像头已启动";
+  requestAnimationFrame(loop);
+}
+
+async function loop() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+
+  // 手势关键点
+  if(handModel) {
+    const hands = await handModel.estimateHands(video);
+    hands.forEach(hand => {
+      hand.landmarks.forEach(([x,y])=>{
+        ctx.beginPath();
+        ctx.arc(x,y,5,0,2*Math.PI);
+        ctx.fillStyle='red';
+        ctx.fill();
+      });
+    });
+  }
+
+  // 姿势关键点
+  if(poseModel) {
+    const poses = await poseModel.estimatePoses(video);
+    poses.forEach(pose=>{
+      pose.keypoints.forEach(k=>{
+        ctx.beginPath();
+        ctx.arc(k.x,k.y,5,0,2*Math.PI);
+        ctx.fillStyle='green';
+        ctx.fill();
+      });
+    });
+  }
+
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener("load", init);
+</script>
+
+</body>
+</html>
+!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
 <title>TF.js Hands + Posture Demo → micro:bit</title>
 <style>
 body { text-align: center; font-family: sans-serif; margin: 10px; }
