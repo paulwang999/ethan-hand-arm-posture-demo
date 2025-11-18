@@ -14,7 +14,7 @@
     .label { font-size:18px; font-weight:700; }
   </style>
 
-  <!-- 官方 Tasks Vision Bundle -->
+  <!-- 官方 Tasks Vision Bundle（非 ES Module） -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
 </head>
 <body>
@@ -40,145 +40,146 @@
   </div>
 
 <script>
-const { FilesetResolver, HandLandmarker, PoseLandmarker } = window.tasksVision;
+window.onload = async () => {
+  const { FilesetResolver, HandLandmarker, PoseLandmarker } = window.tasksVision;
 
-const video = document.getElementById('video');
-const canvas = document.getElementById('output');
-const ctx = canvas.getContext('2d');
-const startBtn = document.getElementById('startBtn');
-const stopBtn = document.getElementById('stopBtn');
-const handLabel = document.getElementById('handLabel');
-const poseLabel = document.getElementById('poseLabel');
-const spatial = document.getElementById('spatial');
-const events = document.getElementById('events');
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('output');
+  const ctx = canvas.getContext('2d');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const handLabel = document.getElementById('handLabel');
+  const poseLabel = document.getElementById('poseLabel');
+  const spatial = document.getElementById('spatial');
+  const events = document.getElementById('events');
 
-let running = false;
-let handLandmarker, poseLandmarker;
+  let running = false;
+  let handLandmarker, poseLandmarker;
 
-async function initModels() {
-  const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm');
+  async function initModels() {
+    const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm');
 
-  // ✅ 手势模型官方 URL
-  handLandmarker = await HandLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker_lite/float16/1/hand_landmarker_lite.task' },
-    numHands: 2
-  });
+    // 官方手势 Lite 模型
+    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker_lite/float16/1/hand_landmarker_lite.task' },
+      numHands: 2
+    });
 
-  // ✅ 姿势模型官方 URL
-  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task' },
-    runningMode: 'VIDEO'
-  });
-}
-
-async function startCamera(){
-  if(running) return;
-  const stream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}, audio:false});
-  video.srcObject = stream;
-  await video.play();
-  running = true; startBtn.disabled=true; stopBtn.disabled=false;
-  if(!handLandmarker || !poseLandmarker) await initModels();
-  requestAnimationFrame(processFrame);
-}
-
-function stopCamera(){
-  if(!running) return;
-  video.srcObject.getTracks().forEach(t=>t.stop());
-  running=false; startBtn.disabled=false; stopBtn.disabled=true;
-}
-
-startBtn.onclick=startCamera;
-stopBtn.onclick=stopCamera;
-
-async function processFrame(){
-  if(!running) return;
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(video,0,0,canvas.width,canvas.height);
-
-  const handResults = await handLandmarker.detectForVideo(video);
-  const poseResults = await poseLandmarker.detectForVideo(video);
-
-  if(handResults?.landmarks?.length>0){
-    const gesture = recognizeHandGesture(handResults.landmarks[0]);
-    handLabel.textContent = 'Hand: '+gesture.name;
-    emitEvent('hand:'+gesture.name);
-
-    const cx = average(handResults.landmarks[0].map(p=>p.x))*canvas.width;
-    const cy = average(handResults.landmarks[0].map(p=>p.y))*canvas.height;
-    const s = spatialPosition(cx, cy);
-    spatial.textContent = s;
-    emitEvent('spatial:'+s);
-  } else {
-    handLabel.textContent='Hand: —';
-    spatial.textContent='—';
+    // 官方姿势 Lite 模型
+    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task' },
+      runningMode: 'VIDEO'
+    });
   }
 
-  if(poseResults?.landmarks?.length>0){
-    const p = classifyPose(poseResults.landmarks);
-    poseLabel.textContent='Pose: '+p.pose;
-    emitEvent('pose:'+p.pose);
-  } else {
-    poseLabel.textContent='Pose: —';
+  async function startCamera(){
+    if(running) return;
+    const stream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}, audio:false});
+    video.srcObject = stream;
+    await video.play();
+    running = true; startBtn.disabled=true; stopBtn.disabled=false;
+    if(!handLandmarker || !poseLandmarker) await initModels();
+    requestAnimationFrame(processFrame);
   }
 
-  requestAnimationFrame(processFrame);
-}
+  function stopCamera(){
+    if(!running) return;
+    video.srcObject.getTracks().forEach(t=>t.stop());
+    running=false; startBtn.disabled=false; stopBtn.disabled=true;
+  }
 
-function average(arr){return arr.reduce((a,b)=>a+b,0)/arr.length;}
-function spatialPosition(cx,cy){
-  const w=canvas.width,h=canvas.height;
-  const marginX=w*0.2,marginY=h*0.2;
-  if(cy<marginY) return 'UP';
-  if(cy>h-marginY) return 'DOWN';
-  if(cx<marginX) return 'LEFT';
-  if(cx>w-marginX) return 'RIGHT';
-  return 'CENTER';
-}
+  startBtn.onclick=startCamera;
+  stopBtn.onclick=stopCamera;
 
-function emitEvent(msg){
-  const d=document.createElement('div'); d.textContent=msg;
-  events.prepend(d);
-}
+  async function processFrame(){
+    if(!running) return;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
-function recognizeHandGesture(landmarks){
-  const tips=[8,12,16,20];
-  const pip=[6,10,14,18];
-  const extended=[];
-  for(let i=0;i<tips.length;i++){extended.push(landmarks[tips[i]].y<landmarks[pip[i]].y);}
-  const thumbTip=landmarks[4], thumbIp=landmarks[3];
-  const isThumbExt=Math.abs(thumbTip.x-thumbIp.x)>0.03;
-  const distIdxThumb=Math.hypot(landmarks[8].x-thumbTip.x, landmarks[8].y-thumbTip.y);
-  const wrist=landmarks[0];
-  const avgFingerDist=average([8,12,16,20].map(i=>Math.hypot(landmarks[i].x-wrist.x, landmarks[i].y-wrist.y)));
+    const handResults = await handLandmarker.detectForVideo(video);
+    const poseResults = await poseLandmarker.detectForVideo(video);
 
-  if(distIdxThumb<0.04) return {name:'ok',score:0.9};
-  if(extended[0]&&!extended[1]&&!extended[2]&&!extended[3]) return {name:'pointing',score:0.8};
-  if(extended.every(x=>x)&&isThumbExt&&avgFingerDist>0.12) return {name:'open_palm',score:0.95};
-  if(!extended.some(x=>x)&&!isThumbExt) return {name:'fist',score:0.95};
-  if(isThumbExt && thumbTip.y<landmarks[2].y&&!extended.some(x=>x)) return {name:'thumbs_up',score:0.8};
-  if(isThumbExt && extended[3]&&!extended[0]&&!extended[1]&&!extended[2]) return {name:'call',score:0.85};
-  return {name:'unknown',score:0.3};
-}
+    if(handResults?.landmarks?.length>0){
+      const gesture = recognizeHandGesture(handResults.landmarks[0]);
+      handLabel.textContent = 'Hand: '+gesture.name;
+      emitEvent('hand:'+gesture.name);
 
-function classifyPose(landmarks){
-  const lshoulder=landmarks[11], rshoulder=landmarks[12], lhip=landmarks[23], rhip=landmarks[24];
-  const lknee=landmarks[25], rknee=landmarks[26], lwrist=landmarks[15], rwrist=landmarks[16];
-  const head=landmarks[0];
-  if(!lshoulder||!rshoulder||!lhip||!rhip) return {pose:'unknown'};
+      const cx = average(handResults.landmarks[0].map(p=>p.x))*canvas.width;
+      const cy = average(handResults.landmarks[0].map(p=>p.y))*canvas.height;
+      const s = spatialPosition(cx, cy);
+      spatial.textContent = s;
+      emitEvent('spatial:'+s);
+    } else {
+      handLabel.textContent='Hand: —';
+      spatial.textContent='—';
+    }
 
-  const shoulderY=(lshoulder.y+rshoulder.y)/2, hipY=(lhip.y+rhip.y)/2, kneeY=(lknee+rknee)/2;
-  const leaningLeft=lshoulder.x>lhip.x+0.08, leaningRight=rshoulder.x<rhip.x-0.08;
-  if(Math.abs(shoulderY-hipY)<0.15){if(leaningLeft) return {pose:'lean-left'}; if(leaningRight) return {pose:'lean-right'}; return {pose:'standing'};}
-  if(hipY>shoulderY+0.15 && kneeY<hipY-0.15) return {pose:'bending'};
-  if(hipY>shoulderY+0.2 && kneeY>hipY-0.1) return {pose:'squatting'};
-  const leftHandOnHead=lwrist&&head&&lwrist.y<head.y+0.05, rightHandOnHead=rwrist&&head&&rwrist.y<head.y+0.05;
-  if(leftHandOnHead||rightHandOnHead) return {pose:'hand-on-head'};
-  const leftArmUp=lwrist&&lwrist.y<lshoulder.y-0.1, rightArmUp=rwrist&&rwrist.y<rshoulder.y-0.1;
-  if(leftArmUp||rightArmUp) return {pose:'arms-up'};
-  const leftArmDown=lwrist&&lwrist.y>lshoulder.y+0.1, rightArmDown=rwrist&&rwrist.y>rshoulder.y+0.1;
-  if(leftArmDown||rightArmDown) return {pose:'arms-down'};
-  return {pose:'unknown'};
-}
+    if(poseResults?.landmarks?.length>0){
+      const p = classifyPose(poseResults.landmarks);
+      poseLabel.textContent='Pose: '+p.pose;
+      emitEvent('pose:'+p.pose);
+    } else {
+      poseLabel.textContent='Pose: —';
+    }
+
+    requestAnimationFrame(processFrame);
+  }
+
+  function average(arr){return arr.reduce((a,b)=>a+b,0)/arr.length;}
+  function spatialPosition(cx,cy){
+    const w=canvas.width,h=canvas.height;
+    const marginX=w*0.2,marginY=h*0.2;
+    if(cy<marginY) return 'UP';
+    if(cy>h-marginY) return 'DOWN';
+    if(cx<marginX) return 'LEFT';
+    if(cx>w-marginX) return 'RIGHT';
+    return 'CENTER';
+  }
+  function emitEvent(msg){
+    const d=document.createElement('div'); d.textContent=msg;
+    events.prepend(d);
+  }
+
+  function recognizeHandGesture(landmarks){
+    const tips=[8,12,16,20], pip=[6,10,14,18];
+    const extended=[];
+    for(let i=0;i<tips.length;i++){extended.push(landmarks[tips[i]].y<landmarks[pip[i]].y);}
+    const thumbTip=landmarks[4], thumbIp=landmarks[3];
+    const isThumbExt=Math.abs(thumbTip.x-thumbIp.x)>0.03;
+    const distIdxThumb=Math.hypot(landmarks[8].x-thumbTip.x, landmarks[8].y-thumbTip.y);
+    const wrist=landmarks[0];
+    const avgFingerDist=average([8,12,16,20].map(i=>Math.hypot(landmarks[i].x-wrist.x, landmarks[i].y-wrist.y)));
+
+    if(distIdxThumb<0.04) return {name:'ok',score:0.9};
+    if(extended[0]&&!extended[1]&&!extended[2]&&!extended[3]) return {name:'pointing',score:0.8};
+    if(extended.every(x=>x)&&isThumbExt&&avgFingerDist>0.12) return {name:'open_palm',score:0.95};
+    if(!extended.some(x=>x)&&!isThumbExt) return {name:'fist',score:0.95};
+    if(isThumbExt && thumbTip.y<landmarks[2].y&&!extended.some(x=>x)) return {name:'thumbs_up',score:0.8};
+    if(isThumbExt && extended[3]&&!extended[0]&&!extended[1]&&!extended[2]) return {name:'call',score:0.85};
+    return {name:'unknown',score:0.3};
+  }
+
+  function classifyPose(landmarks){
+    const lshoulder=landmarks[11], rshoulder=landmarks[12], lhip=landmarks[23], rhip=landmarks[24];
+    const lknee=landmarks[25], rknee=landmarks[26], lwrist=landmarks[15], rwrist=landmarks[16];
+    const head=landmarks[0];
+    if(!lshoulder||!rshoulder||!lhip||!rhip) return {pose:'unknown'};
+
+    const shoulderY=(lshoulder.y+rshoulder.y)/2, hipY=(lhip.y+rhip.y)/2, kneeY=(lknee+rknee)/2;
+    const leaningLeft=lshoulder.x>lhip.x+0.08, leaningRight=rshoulder.x<rhip.x-0.08;
+    if(Math.abs(shoulderY-hipY)<0.15){if(leaningLeft) return {pose:'lean-left'}; if(leaningRight) return {pose:'lean-right'}; return {pose:'standing'};}
+    if(hipY>shoulderY+0.15 && kneeY<hipY-0.15) return {pose:'bending'};
+    if(hipY>shoulderY+0.2 && kneeY>hipY-0.1) return {pose:'squatting'};
+    const leftHandOnHead=lwrist&&head&&lwrist.y<head.y+0.05, rightHandOnHead=rwrist&&head&&rwrist.y<head.y+0.05;
+    if(leftHandOnHead||rightHandOnHead) return {pose:'hand-on-head'};
+    const leftArmUp=lwrist&&lwrist.y<lshoulder.y-0.1, rightArmUp=rwrist&&rwrist.y<rshoulder.y-0.1;
+    if(leftArmUp||rightArmUp) return {pose:'arms-up'};
+    const leftArmDown=lwrist&&lwrist.y>lshoulder.y+0.1, rightArmDown=rwrist&&rwrist.y>rshoulder.y+0.1;
+    if(leftArmDown||rightArmDown) return {pose:'arms-down'};
+    return {pose:'unknown'};
+  }
+
+};
 </script>
 </body>
 </html>
