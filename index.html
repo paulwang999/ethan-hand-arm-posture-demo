@@ -2,11 +2,11 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>PoseLandmarker Lite Demo (GitHub URL)</title>
+<title>PoseLandmarker Lite Demo</title>
 <style>
-  body { text-align: center; font-family: sans-serif; margin: 10px; background:#111; color:#eee; }
+  body { text-align: center; font-family: sans-serif; margin: 10px; background: #111; color: #eee; }
   video, canvas { width: 60%; margin: 5px; border: 1px solid #333; vertical-align: top; }
-  #status, #poseLabel { font-size: 20px; margin:6px; display:block; }
+  #status, #poseLabel { font-size: 20px; margin: 6px; display: block; }
 </style>
 </head>
 <body>
@@ -29,7 +29,7 @@ const poseLabel = document.getElementById("poseLabel");
 
 let poseLandmarker;
 
-// 判断姿势函数
+// 简单姿势分类函数
 function classifyPose(lms){
   if(!lms || lms.length<33) return 'UNKNOWN';
 
@@ -57,7 +57,6 @@ function classifyPose(lms){
   if(leaningLeft) return 'LEAN_LEFT';
   if(leaningRight) return 'LEAN_RIGHT';
   if(hipY > shoulderY + 0.15 && kneeY > hipY - 0.05) return 'SQUATTING';
-  if(hipY > shoulderY + 0.15 && kneeY < hipY - 0.05) return 'BENDING';
 
   return 'STANDING';
 }
@@ -86,14 +85,9 @@ function startCamera(){
     .catch(err=>{ statusEl.textContent="无法访问摄像头："+err; console.error(err); });
 }
 
-// 限制帧率
-let lastFrameTime=0;
-const fps=20;
-
 // 主循环
 async function loop(timestamp){
-  if(timestamp - lastFrameTime < 1000/fps){ requestAnimationFrame(loop); return; }
-  lastFrameTime = timestamp;
+  if(!poseLandmarker) return;
 
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
@@ -104,8 +98,11 @@ async function loop(timestamp){
 
   if(poseResults?.landmarks?.length>0){
     const draw = new DrawingUtils(ctx);
-    draw.drawLandmarks(poseResults.landmarks);
 
+    // 绘制关键点
+    poseResults.landmarks.forEach(lm => draw.drawLandmark(lm));
+
+    // 绘制骨架连接
     const connections=[[11,13],[13,15],[12,14],[14,16],[11,12],[23,25],[25,27],[24,26],[26,28],[23,24],[11,23],[12,24]];
     connections.forEach(c=>{
       const [i,j]=c;
@@ -123,6 +120,5 @@ async function loop(timestamp){
 
 window.addEventListener("load", initPose);
 </script>
-
 </body>
 </html>
