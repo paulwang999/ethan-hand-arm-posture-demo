@@ -127,6 +127,7 @@ async function init() {
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
     );
 
+    // 手势模型（GitHub raw）
     handLandmarker = await HandLandmarker.createFromOptions(vision, {
         baseOptions: { 
             modelAssetPath: "https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/hand_landmarker.task" 
@@ -135,6 +136,7 @@ async function init() {
         numHands: 1,
     });
 
+    // 姿势模型（GitHub raw）
     poseLandmarker = await HandLandmarker.createFromOptions(vision, {
         baseOptions: { 
             modelAssetPath: "https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/pose_landmarker_lite.task" 
