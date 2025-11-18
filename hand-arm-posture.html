@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MediaPipe 手势 + 姿势识别（Hand + Pose）</title>
+  <title>MediaPipe 手势 + 姿势识别（Hand + Pose Lite）</title>
   <style>
     body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:#111; color:#eee; display:flex; gap:16px; padding:12px; }
     #left { display:flex; flex-direction:column; gap:8px; }
@@ -62,7 +62,9 @@ async function initModels() {
   });
 
   poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm/pose_landmarker_full.task' },
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task'
+    },
     runningMode: 'VIDEO'
   });
 }
@@ -94,7 +96,6 @@ async function processFrame(){
   const handResults = await handLandmarker.detectForVideo(video);
   const poseResults = await poseLandmarker.detectForVideo(video);
 
-  // hand gesture
   if(handResults?.landmarks?.length>0){
     const gesture = recognizeHandGesture(handResults.landmarks[0]);
     handLabel.textContent = 'Hand: '+gesture.name;
@@ -110,7 +111,6 @@ async function processFrame(){
     spatial.textContent='—';
   }
 
-  // pose gesture
   if(poseResults?.landmarks?.length>0){
     const p = classifyPose(poseResults.landmarks);
     poseLabel.textContent='Pose: '+p.pose;
