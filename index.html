@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MediaPipe Hands + micro:bit（手势控制 + posture）</title>
+<title>MediaPipe Hands + micro:bit（手势控制 + posture 调试）</title>
 <style>
   body { text-align: center; font-family: sans-serif; margin: 10px; }
   video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align: top; }
@@ -131,6 +131,9 @@ async function init() {
         numPoses: 1
     });
 
+    // 调试：打印 poseLandmarker 对象
+    console.log("poseLandmarker:", poseLandmarker);
+
     statusEl.textContent = "模型加载完成，启动摄像头...";
     startCamera();
 }
@@ -201,11 +204,13 @@ async function loop(timestamp) {
             }
         }
 
-        // posture 检测
+        // posture 检测（调试用）
         if (poseLandmarker) {
             const poseResults = await poseLandmarker.detectForVideo(video, timestamp);
             if (poseResults && poseResults.landmarks.length > 0) {
-                console.log("Posture landmarks:", poseResults.landmarks[0]);
+                console.log("Pose landmarks:", poseResults.landmarks[0]);
+            } else {
+                console.log("No pose detected");
             }
         }
 
