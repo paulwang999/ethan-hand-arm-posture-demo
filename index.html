@@ -1,168 +1,166 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hand + Pose Recognition Demo</title>
-  <style>
-    body { font-family: sans-serif; background: #111; color: #eee; display: flex; gap:16px; padding:12px;}
-    video, canvas { border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.6); }
-    video { transform: scaleX(-1); }
-    .badge { background:#222; padding:6px 8px; border-radius:6px; margin-top:4px;}
-    #log { width:380px; max-height:720px; overflow:auto; padding:8px; background:#0b0b0b; border-radius:8px;}
-  </style>
+<meta charset="UTF-8">
+<title>MediaPipe Hands + Pose Recognition Demo</title>
+<style>
+  body { text-align: center; font-family: sans-serif; margin: 10px; background:#111; color:#eee; }
+  video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align: top; }
+  #status { color: deepskyblue; font-size: 18px; }
+  #handLabel, #poseLabel, #spatialLabel { font-size: 20px; margin:6px; display:block; }
+</style>
 </head>
 <body>
-  <div>
-    <button id="startBtn">启动相机</button>
-    <button id="stopBtn" disabled>停止</button><br>
-    <video id="video" width="640" height="480" autoplay muted playsinline></video>
-    <canvas id="canvas" width="640" height="480" style="position:absolute;top:0;left:0"></canvas>
-    <div class="badge" id="handLabel">Hand: —</div>
-    <div class="badge" id="poseLabel">Pose: —</div>
-    <div class="badge" id="spatialLabel">Spatial: —</div>
-  </div>
-  <div id="log">
-    <h3>Events</h3>
-    <div id="events"></div>
-  </div>
 
-  <!-- ES Module 加载 MediaPipe Tasks Vision -->
-  <script type="module">
-    import { FilesetResolver, HandLandmarker, PoseLandmarker } from 'https://unpkg.com/@mediapipe/tasks-vision@0.10.21/vision_bundle.mjs';
+<h2>MediaPipe Hands + Pose Recognition Demo</h2>
 
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    const startBtn = document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const handLabel = document.getElementById('handLabel');
-    const poseLabel = document.getElementById('poseLabel');
-    const spatialLabel = document.getElementById('spatialLabel');
-    const eventsDiv = document.getElementById('events');
+<div id="status">初始化...</div>
+<div id="handLabel">Hand: —</div>
+<div id="poseLabel">Pose: —</div>
+<div id="spatialLabel">Spatial: —</div>
 
-    let running = false;
-    let handLandmarker, poseLandmarker;
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
 
-    async function initModels() {
-      const vision = await FilesetResolver.forVisionTasks('https://unpkg.com/@mediapipe/tasks-vision@0.10.21/wasm/');
-      handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: 'hand_landmarker.task' },
-        numHands: 2
-      });
-      poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: 'pose_landmarker_lite.task' },
-        runningMode: 'VIDEO'
-      });
-    }
+<script type="module">
+import { HandLandmarker, PoseLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
 
-    startBtn.onclick = async () => {
-      if(running) return;
-      const stream = await navigator.mediaDevices.getUserMedia({ video:{width:640,height:480}, audio:false });
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const statusEl = document.getElementById("status");
+const handLabel = document.getElementById("handLabel");
+const poseLabel = document.getElementById("poseLabel");
+const spatialLabel = document.getElementById("spatialLabel");
+
+let handLandmarker, poseLandmarker;
+let running = false;
+
+async function initModels() {
+  statusEl.textContent = "加载模型...";
+  const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
+  
+  handLandmarker = await HandLandmarker.createFromOptions(vision,{
+    baseOptions: { modelAssetPath: "./hand_landmarker.task" },
+    runningMode: "VIDEO",
+    numHands: 2
+  });
+
+  poseLandmarker = await PoseLandmarker.createFromOptions(vision,{
+    baseOptions: { modelAssetPath: "./pose_landmarker_lite.task" },
+    runningMode: "VIDEO"
+  });
+
+  statusEl.textContent = "模型加载完成，启动摄像头...";
+  startCamera();
+}
+
+function startCamera(){
+  navigator.mediaDevices.getUserMedia({ video:true })
+    .then(stream=>{
       video.srcObject = stream;
-      await video.play();
-      running = true;
-      startBtn.disabled = true; stopBtn.disabled = false;
-      if(!handLandmarker || !poseLandmarker) await initModels();
-      requestAnimationFrame(processFrame);
-    };
-
-    stopBtn.onclick = () => {
-      if(!running) return;
-      video.srcObject.getTracks().forEach(t => t.stop());
-      running = false;
-      startBtn.disabled = false; stopBtn.disabled = true;
-    };
-
-    async function processFrame(){
-      if(!running) return;
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      ctx.drawImage(video,0,0,canvas.width,canvas.height);
-
-      const handResults = await handLandmarker.detectForVideo(video);
-      const poseResults = await poseLandmarker.detectForVideo(video);
-
-      if(handResults?.landmarks?.length>0){
-        const gesture = recognizeHandGesture(handResults.landmarks[0]);
-        handLabel.textContent = 'Hand: '+gesture.name;
-
-        const cx = average(handResults.landmarks[0].map(p=>p.x))*canvas.width;
-        const cy = average(handResults.landmarks[0].map(p=>p.y))*canvas.height;
-        const s = spatialPosition(cx,cy);
-        spatialLabel.textContent = s;
-
-        emitEvent('hand:'+gesture.name);
-        emitEvent('spatial:'+s);
-      } else {
-        handLabel.textContent='Hand: —';
-        spatialLabel.textContent='—';
+      video.onloadedmetadata=()=>{ 
+        video.play(); 
+        running = true; 
+        requestAnimationFrame(loop); 
       }
+    })
+    .catch(err=>{ statusEl.textContent = "无法访问摄像头："+err; console.error(err); });
+}
 
-      if(poseResults?.landmarks?.length>0){
-        const p = classifyPose(poseResults.landmarks);
-        poseLabel.textContent='Pose: '+p.pose;
-        emitEvent('pose:'+p.pose);
-      } else {
-        poseLabel.textContent='Pose: —';
-      }
+// 工具函数
+function average(arr){ return arr.reduce((a,b)=>a+b,0)/arr.length; }
+function spatialPosition(cx,cy,w,h){
+  const marginX=w*0.2, marginY=h*0.2;
+  if(cy<marginY) return 'UP';
+  if(cy>h-marginY) return 'DOWN';
+  if(cx<marginX) return 'LEFT';
+  if(cx>w-marginX) return 'RIGHT';
+  return 'CENTER';
+}
 
-      requestAnimationFrame(processFrame);
-    }
+// 手势识别函数
+function recognizeHandGesture(lm){
+  const tips=[8,12,16,20], pip=[6,10,14,18];
+  const extended=[];
+  for(let i=0;i<tips.length;i++){extended.push(lm[tips[i]].y<lm[pip[i]].y);}
+  const thumbTip=lm[4], thumbIp=lm[3];
+  const isThumbExt=Math.abs(thumbTip.x-thumbIp.x)>0.03;
+  const distIdxThumb=Math.hypot(lm[8].x-thumbTip.x, lm[8].y-thumbTip.y);
+  const wrist=lm[0];
+  const avgFingerDist=average([8,12,16,20].map(i=>Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y)));
+  
+  if(distIdxThumb<0.04) return 'OK';
+  if(extended[0]&&!extended[1]&&!extended[2]&&!extended[3]) return 'POINT';
+  if(extended.every(x=>x)&&isThumbExt&&avgFingerDist>0.12) return 'OPEN_PALM';
+  if(!extended.some(x=>x)&&!isThumbExt) return 'FIST';
+  if(isThumbExt && thumbTip.y<lm[2].y&&!extended.some(x=>x)) return 'THUMBS_UP';
+  if(isThumbExt && extended[3]&&!extended[0]&&!extended[1]&&!extended[2]) return 'CALL';
+  return 'UNKNOWN';
+}
 
-    function average(arr){return arr.reduce((a,b)=>a+b,0)/arr.length;}
-    function spatialPosition(cx,cy){
-      const w=canvas.width,h=canvas.height;
-      const marginX=w*0.2,marginY=h*0.2;
-      if(cy<marginY) return 'UP';
-      if(cy>h-marginY) return 'DOWN';
-      if(cx<marginX) return 'LEFT';
-      if(cx>w-marginX) return 'RIGHT';
-      return 'CENTER';
-    }
-    function emitEvent(msg){
-      const d=document.createElement('div'); d.textContent=msg;
-      eventsDiv.prepend(d);
-    }
+// 姿势识别函数
+function classifyPose(lms){
+  const lshoulder=lms[11], rshoulder=lms[12], lhip=lms[23], rhip=lms[24];
+  const lknee=lms[25], rknee=lms[26], lwrist=lms[15], rwrist=lms[16], head=lms[0];
+  if(!lshoulder||!rshoulder||!lhip||!rhip) return 'UNKNOWN';
+  const shoulderY=(lshoulder.y+rshoulder.y)/2, hipY=(lhip.y+rhip.y)/2, kneeY=(lknee.y+rknee.y)/2;
+  const leaningLeft=lshoulder.x>lhip.x+0.08, leaningRight=rshoulder.x<rhip.x-0.08;
+  if(Math.abs(shoulderY-hipY)<0.15){ if(leaningLeft) return 'LEAN_LEFT'; if(leaningRight) return 'LEAN_RIGHT'; return 'STANDING';}
+  if(hipY>shoulderY+0.15 && kneeY<hipY-0.15) return 'BENDING';
+  if(hipY>shoulderY+0.2 && kneeY>hipY-0.1) return 'SQUATTING';
+  const leftHandOnHead=lwrist&&head&&lwrist.y<head.y+0.05;
+  const rightHandOnHead=rwrist&&head&&rwrist.y<head.y+0.05;
+  if(leftHandOnHead||rightHandOnHead) return 'HAND_ON_HEAD';
+  const leftArmUp=lwrist&&lwrist.y<lshoulder.y-0.1, rightArmUp=rwrist&&rwrist.y<rshoulder.y-0.1;
+  if(leftArmUp||rightArmUp) return 'ARMS_UP';
+  const leftArmDown=lwrist&&lwrist.y>lshoulder.y+0.1, rightArmDown=rwrist&&rwrist.y>rshoulder.y+0.1;
+  if(leftArmDown||rightArmDown) return 'ARMS_DOWN';
+  return 'UNKNOWN';
+}
 
-    // 手势识别（open_palm, fist, pointing, thumbs_up, ok, call）
-    function recognizeHandGesture(landmarks){
-      const tips=[8,12,16,20], pip=[6,10,14,18];
-      const extended=[];
-      for(let i=0;i<tips.length;i++){extended.push(landmarks[tips[i]].y<landmarks[pip[i]].y);}
-      const thumbTip=landmarks[4], thumbIp=landmarks[3];
-      const isThumbExt=Math.abs(thumbTip.x-thumbIp.x)>0.03;
-      const distIdxThumb=Math.hypot(landmarks[8].x-thumbTip.x, landmarks[8].y-thumbTip.y);
-      const wrist=landmarks[0];
-      const avgFingerDist=average([8,12,16,20].map(i=>Math.hypot(landmarks[i].x-wrist.x, landmarks[i].y-wrist.y)));
-      if(distIdxThumb<0.04) return {name:'ok'};
-      if(extended[0]&&!extended[1]&&!extended[2]&&!extended[3]) return {name:'pointing'};
-      if(extended.every(x=>x)&&isThumbExt&&avgFingerDist>0.12) return {name:'open_palm'};
-      if(!extended.some(x=>x)&&!isThumbExt) return {name:'fist'};
-      if(isThumbExt && thumbTip.y<landmarks[2].y&&!extended.some(x=>x)) return {name:'thumbs_up'};
-      if(isThumbExt && extended[3]&&!extended[0]&&!extended[1]&&!extended[2]) return {name:'call'};
-      return {name:'unknown'};
-    }
+async function loop(timestamp){
+  if(!running) return;
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
 
-    // 姿势识别（standing, squatting, bending, lean-left/right, arms-up/down, hand-on-head）
-    function classifyPose(lms){
-      const lshoulder=lms[11], rshoulder=lms[12], lhip=lms[23], rhip=lms[24];
-      const lknee=lms[25], rknee=lms[26], lwrist=lms[15], rwrist=lms[16];
-      const head=lms[0];
-      if(!lshoulder||!rshoulder||!lhip||!rhip) return {pose:'unknown'};
-      const shoulderY=(lshoulder.y+rshoulder.y)/2, hipY=(lhip.y+rhip.y)/2, kneeY=(lknee.y+rknee.y)/2;
-      const leaningLeft=lshoulder.x>lhip.x+0.08, leaningRight=rshoulder.x<rhip.x-0.08;
-      if(Math.abs(shoulderY-hipY)<0.15){if(leaningLeft) return {pose:'lean-left'}; if(leaningRight) return {pose:'lean-right'}; return {pose:'standing'};}
-      if(hipY>shoulderY+0.15 && kneeY<hipY-0.15) return {pose:'bending'};
-      if(hipY>shoulderY+0.2 && kneeY>hipY-0.1) return {pose:'squatting'};
-      const leftHandOnHead=lwrist&&head&&lwrist.y<head.y+0.05, rightHandOnHead=rwrist&&head&&rwrist.y<head.y+0.05;
-      if(leftHandOnHead||rightHandOnHead) return {pose:'hand-on-head'};
-      const leftArmUp=lwrist&&lwrist.y<lshoulder.y-0.1, rightArmUp=rwrist&&rwrist.y<rshoulder.y-0.1;
-      if(leftArmUp||rightArmUp) return {pose:'arms-up'};
-      const leftArmDown=lwrist&&lwrist.y>lshoulder.y+0.1, rightArmDown=rwrist&&rwrist.y>rshoulder.y+0.1;
-      if(leftArmDown||rightArmDown) return {pose:'arms-down'};
-      return {pose:'unknown'};
-    }
+  // Hand
+  const handResults = await handLandmarker.detectForVideo(video, timestamp);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
-  </script>
+  if(handResults?.landmarks?.length>0){
+    const lm = handResults.landmarks[0];
+    const draw = new DrawingUtils(ctx);
+    draw.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS);
+    draw.drawLandmarks(lm);
+
+    const gesture = recognizeHandGesture(lm);
+    handLabel.textContent = 'Hand: '+gesture;
+
+    const cx = average(lm.map(p=>p.x))*canvas.width;
+    const cy = average(lm.map(p=>p.y))*canvas.height;
+    const s = spatialPosition(cx,cy,canvas.width,canvas.height);
+    spatialLabel.textContent = 'Spatial: '+s;
+  } else {
+    handLabel.textContent = 'Hand: —';
+    spatialLabel.textContent = 'Spatial: —';
+  }
+
+  // Pose
+  const poseResults = await poseLandmarker.detectForVideo(video, timestamp);
+  if(poseResults?.landmarks?.length>0){
+    const pose = classifyPose(poseResults.landmarks);
+    poseLabel.textContent = 'Pose: '+pose;
+  } else {
+    poseLabel.textContent = 'Pose: —';
+  }
+
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener("load", initModels);
+
+</script>
 </body>
 </html>
