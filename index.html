@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MediaPipe Hands + Posture + micro:bit</title>
+<title>TF.js Hands + Pose + micro:bit</title>
 <style>
 body { text-align: center; font-family: sans-serif; margin: 10px; }
 video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align: top; }
@@ -13,7 +13,7 @@ video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align:
 </head>
 <body>
 
-<h2>MediaPipe Hands + Posture → micro:bit</h2>
+<h2>TensorFlow.js Hands + Pose → micro:bit</h2>
 <div id="status">初始化...</div>
 <div id="action">等待动作...</div>
 <button id="connectBtn">连接 micro:bit</button>
@@ -35,10 +35,11 @@ video, canvas { width: 45%; margin: 5px; border: 1px solid #333; vertical-align:
     <input type="range" id="coolSlider" min="50" max="500" step="10" value="150">
 </div>
 
-<script type="module">
-import { HandLandmarker, PoseLandmarker, FilesetResolver, DrawingUtils } 
-    from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
+<script>
 const statusEl = document.getElementById("status");
 const actionEl = document.getElementById("action");
 const video = document.getElementById("video");
@@ -90,122 +91,103 @@ connectBtn.addEventListener("click", async () => {
 
 // 手势闭环
 let currentAction = null, actionCounter = 0, lastSent = 0, lastSentAction = null;
-
 // 姿势闭环
 let currentPosture = null, postureCounter = 0, lastSentPosture = 0;
 
+// 串口发送
 async function sendAction(a) {
     if (!writer) return;
-    let msg = "0";
-    if (a==="LEFT") msg="L";
-    else if (a==="RIGHT") msg="R";
-    else if (a==="UP") msg="U";
-    else if (a==="DOWN") msg="D";
-    else if (a==="RESET") msg="F";
-    await writer.write(new TextEncoder().encode(msg + "\n"));
+    let msg="0";
+    if(a==="LEFT") msg="L";
+    else if(a==="RIGHT") msg="R";
+    else if(a==="UP") msg="U";
+    else if(a==="DOWN") msg="D";
+    else if(a==="RESET") msg="F";
+    await writer.write(new TextEncoder().encode(msg+"\n"));
 }
-
 async function sendPosture(msg){
-    if (!writer) return;
+    if(!writer) return;
     await writer.write(new TextEncoder().encode(msg+"\n"));
 }
 
 // 模型
-let handLandmarker, poseLandmarker;
+let handModel, poseModel;
 
-async function init() {
-    statusEl.textContent = "加载模型...";
-    const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
-    );
-
-    // 手势模型
-    handLandmarker = await HandLandmarker.createFromOptions(vision,{
-        baseOptions:{modelAssetPath:"https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/hand_landmarker.task"},
-        runningMode:"VIDEO",
-        numHands:1
-    });
-
-    // 姿势模型
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision,{
-        baseOptions:{modelAssetPath:"https://raw.githubusercontent.com/paulwang999/ethan-hand-arm-posture-demo/main/pose_landmarker_lite.task"},
-        runningMode:"VIDEO",
-        numPoses:1
-    });
-
-    console.log("poseLandmarker object:", poseLandmarker);
-
-    statusEl.textContent = "模型加载完成，启动摄像头...";
+async function init(){
+    statusEl.textContent="加载模型...";
+    handModel = await handpose.load();
+    poseModel = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+    statusEl.textContent="模型加载完成，启动摄像头...";
     startCamera();
 }
 
-function startCamera() {
+function startCamera(){
     navigator.mediaDevices.getUserMedia({video:true})
     .then(stream=>{
         video.srcObject=stream;
         video.onloadedmetadata=()=>{
             video.play();
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            statusEl.textContent = "摄像头已启动";
+            canvas.width=video.videoWidth;
+            canvas.height=video.videoHeight;
+            statusEl.textContent="摄像头已启动";
             requestAnimationFrame(loop);
-        };
+        }
     })
     .catch(err=>{
-        statusEl.textContent = "无法访问摄像头：" + err;
+        statusEl.textContent="无法访问摄像头："+err;
         console.error(err);
     });
 }
 
-// 简单站立/蹲下判定
-function getPosture(lm){
-    // 使用左右髋膝踝关键点
-    const hipY = (lm[23].y + lm[24].y)/2;
-    const kneeY = (lm[25].y + lm[26].y)/2;
-    const kneeHipDist = kneeY - hipY;
-    if (kneeHipDist>0.25) return "SQUAT";
+// 判断手势
+function detectHandGesture(keypoints){
+    const wrist = keypoints[0];
+    const tip = keypoints[8];
+    const vx = tip[0]-wrist[0], vy = tip[1]-wrist[1];
+    const len = Math.hypot(vx,vy);
+
+    // 判断是否握拳
+    let dIndex = Math.hypot(keypoints[8][0]-wrist[0], keypoints[8][1]-wrist[1]);
+    let dMiddle = Math.hypot(keypoints[12][0]-wrist[0], keypoints[12][1]-wrist[1]);
+    let dRing = Math.hypot(keypoints[16][0]-wrist[0], keypoints[16][1]-wrist[1]);
+    let dPinky = Math.hypot(keypoints[20][0]-wrist[0], keypoints[20][1]-wrist[1]);
+    const fistThreshold=30; // 像素阈值，浏览器端可以调
+
+    if(dIndex<fistThreshold && dMiddle<fistThreshold && dRing<fistThreshold && dPinky<fistThreshold) return "RESET";
+    if(len>dirThreshold*canvas.width){
+        if(Math.abs(vx)>Math.abs(vy)) return vx>0?"LEFT":"RIGHT";
+        else return vy>0?"DOWN":"UP";
+    }
+    return null;
+}
+
+// 判断姿势
+function detectPosture(keypoints){
+    const leftHip = keypoints[11];
+    const rightHip = keypoints[12];
+    const leftKnee = keypoints[13];
+    const rightKnee = keypoints[14];
+
+    const hipY = (leftHip[1]+rightHip[1])/2;
+    const kneeY = (leftKnee[1]+rightKnee[1])/2;
+    const kneeHipDist = kneeY-hipY;
+    if(kneeHipDist>50) return "SQUAT"; // 像素阈值可调
     return "STAND";
 }
 
-async function loop(timestamp){
-    if(!handLandmarker) return;
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    // 手势
-    const results = await handLandmarker.detectForVideo(video, timestamp);
+async function loop(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
-    if(results.landmarks && results.landmarks.length>0){
-        const lm = results.landmarks[0];
-        const draw = new DrawingUtils(ctx);
-        draw.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS);
-        draw.drawLandmarks(lm);
-
-        const wrist=lm[0], tip=lm[8];
-        const vx=tip.x-wrist.x, vy=tip.y-wrist.y;
-        const len=Math.hypot(vx,vy);
-        const dIndex=Math.hypot(lm[8].x-wrist.x,lm[8].y-wrist.y,lm[8].z-wrist.z);
-        const dMiddle=Math.hypot(lm[12].x-wrist.x,lm[12].y-wrist.y,lm[12].z-wrist.z);
-        const dRing=Math.hypot(lm[16].x-wrist.x,lm[16].y-wrist.y,lm[16].z-wrist.z);
-        const dPinky=Math.hypot(lm[20].x-wrist.x,lm[20].y-wrist.y,lm[20].z-wrist.z);
-        const fistThreshold=0.12;
-        const isFist=dIndex<fistThreshold && dMiddle<fistThreshold && dRing<fistThreshold && dPinky<fistThreshold;
-
-        let detected=null;
-        if(isFist) detected="RESET";
-        else if(len>dirThreshold){
-            if(Math.abs(vx)>Math.abs(vy)) detected=vx>0?"LEFT":"RIGHT";
-            else detected=vy>0?"DOWN":"UP";
-        }
-
-        if(detected===currentAction) actionCounter++;
-        else if(detected){ currentAction=detected; actionCounter=1; }
+    // 手势检测
+    const hands = await handModel.estimateHands(video);
+    if(hands.length>0){
+        const gesture = detectHandGesture(hands[0].landmarks);
+        if(gesture===currentAction) actionCounter++;
+        else if(gesture){ currentAction=gesture; actionCounter=1; }
         else { currentAction=null; actionCounter=0; }
 
-        const now=performance.now();
+        const now = performance.now();
         if(currentAction && currentAction!==lastSentAction && actionCounter>=framesNeeded && now-lastSent>cooldown){
             actionEl.textContent=currentAction;
             await sendAction(currentAction);
@@ -221,24 +203,22 @@ async function loop(timestamp){
         actionCounter=0;
     }
 
-    // 姿势
-    if(poseLandmarker){
-        const poseResults=await poseLandmarker.detectForVideo(video,timestamp);
-        if(poseResults && poseResults.landmarks.length>0){
-            const posture=getPosture(poseResults.landmarks[0]);
-            if(posture===currentPosture) postureCounter++;
-            else { currentPosture=posture; postureCounter=1; }
+    // 姿势检测
+    const poses = await poseModel.estimatePoses(video);
+    if(poses.length>0){
+        const posture = detectPosture(poses[0].keypoints.map(k=>[k.x,k.y]));
+        if(posture===currentPosture) postureCounter++;
+        else { currentPosture=posture; postureCounter=1; }
 
-            if(postureCounter>=framesNeeded && performance.now()-lastSentPosture>cooldown){
-                const msg=posture==="STAND"?"1":"2";
-                await sendPosture(msg);
-                lastSentPosture=performance.now();
-                console.log("Sent posture:",posture,msg);
-            }
-        }else{
-            currentPosture=null;
-            postureCounter=0;
+        if(postureCounter>=framesNeeded && performance.now()-lastSentPosture>cooldown){
+            const msg=posture==="STAND"?"1":"2";
+            await sendPosture(msg);
+            lastSentPosture=performance.now();
+            console.log("Sent posture:",posture,msg);
         }
+    }else{
+        currentPosture=null;
+        postureCounter=0;
     }
 
     requestAnimationFrame(loop);
